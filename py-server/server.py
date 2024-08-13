@@ -117,6 +117,14 @@ def run():
     logger.info("Iniciando o servidor FastAPI...")
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
+async def shutdown():
+    logger.info("Parando o scheduler...")
+    scheduler.shutdown(wait=True)
+    logger.info("Scheduler parado.")
+    logger.info("Fechando o loop de eventos...")
+    loop.stop()
+    logger.info("Loop de eventos fechado.")
+
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     try:
@@ -124,3 +132,5 @@ if __name__ == "__main__":
         loop.run_forever()  
     except KeyboardInterrupt:
         logger.info("Interrupção do usuário, encerrando o servidor.")
+        asyncio.run(shutdown())
+        

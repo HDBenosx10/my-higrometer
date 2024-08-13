@@ -1,38 +1,102 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, Alert, StyleSheet, Image, Animated, TouchableOpacity } from 'react-native';
-import { Ionicons } from '@expo/vector-icons'; // Certifique-se de instalar @expo/vector-icons ou react-native-vector-icons
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, Alert, StyleSheet, Image, Animated, TouchableOpacity, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as Notifications from 'expo-notifications';
 
 const App = () => {
   const [humidity, setHumidity] = useState(0);
-  const [progress, setProgress] = useState(new Animated.Value(0)); // Inicializa a barra de progresso
-  const ESP32_IP = 'http://192.168.1.2'; // Substitua pelo endereço IP do seu ESP32
+  const [progress, setProgress] = useState(new Animated.Value(0));
+  const [expoPushToken, setExpoPushToken] = useState('');
+  const notificationListener = useRef<Notifications.Subscription | null>(null);
+  const responseListener = useRef<Notifications.Subscription | null>(null);
 
-  // Função para buscar o valor de umidade da API
+  const API = ''; // Substitua pelo IP da sua máquina onde está a API
+
   const fetchHumidity = async () => {
     try {
-      const response = await fetch(`${ESP32_IP}/`);
+      const response = await fetch(`${API}/humidity`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       const data = await response.json();
       setHumidity(data.humidity);
-      animateProgress(data.humidity); // Atualiza a barra de progresso
+      animateProgress(data.humidity);
     } catch (error) {
-      Alert.alert('Erro', 'Não foi possível obter a umidade.');
+      Alert.alert('Erro', `Não foi possível obter a umidade.`);
     }
   };
 
-  // Anima a barra de progresso com base na umidade
   const animateProgress = (humidity: number) => {
     Animated.timing(progress, {
-      toValue: humidity / 100, // Convertendo a umidade para uma escala de 0 a 1
+      toValue: humidity / 100,
       duration: 1000,
       useNativeDriver: false,
     }).start();
   };
 
+  const registerForPushNotificationsAsync = async () => {
+    let token;
+
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'default',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF231F7C',
+      });
+    }
+
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+
+    if (finalStatus !== 'granted') {
+      Alert.alert('Falha ao obter permissões para enviar notificações!');
+      return;
+    }
+
+    try {
+      token = (await Notifications.getExpoPushTokenAsync()).data;
+      setExpoPushToken(token);
+    } catch (error) {
+      console.error('Erro ao obter o token:', error);
+    }
+
+    return token;
+  };
+
   useEffect(() => {
-    fetchHumidity(); // Busca a umidade ao iniciar o app
+    (async () => {
+      try {
+        await registerForPushNotificationsAsync();
+        fetchHumidity();
+      } catch (error) {
+        console.error('Erro na configuração inicial:', error);
+      }
+
+      notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+        // @ts-ignore
+        Alert.alert('Nova notificação', notification.request.content.body);
+      });
+
+      responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+      });
+
+      return () => {
+        if (notificationListener.current) {
+          Notifications.removeNotificationSubscription(notificationListener.current);
+        }
+        if (responseListener.current) {
+          Notifications.removeNotificationSubscription(responseListener.current);
+        }
+      };
+    })();
   }, []);
 
-  // Largura da barra de progresso baseada na umidade
   const progressWidth = progress.interpolate({
     inputRange: [0, 1],
     outputRange: ['0%', '100%'],
